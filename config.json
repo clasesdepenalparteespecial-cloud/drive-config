@@ -1,3 +1,26 @@
 {
+  "oauth_client": "credentials.json",
+  "cuentas": {
+    "Derecho Laboral": {
+      "credenciales": "token_derecho_laboral.json",
+      "carpeta": "1-X6vjld-BnVzhmjegk8Xvssk-NwMYYA1"
+    },
+    "Derecho del Consumidor": {
+      "credenciales": "token_derecho_consumidor.json",
+      "carpeta": "100esIw94srW6BptBiShAPzKHBHwCjhTC"
+    },
+    "Derechos Reales": {
+      "credenciales": "token_derechos_reales.json",
+      "carpeta": "1-Wr9eyxuvhBhUUKBC2-oVHDFiQ2C3QVF"
+    },
+    "Taller Administrativo": {
+      "credenciales": "token_taller_administrativo.json",
+      "carpeta": "1-JkbDOFoXGiT2Q6rRjELz2GJx3HoY8CV"
+    },
+    "Teoría del Proceso": {
+      "credenciales": "token_teoria_proceso.json",
+      "carpeta": "1-SIRRKJKMMPgQvndv5ddk1SCnv0qH9wG"
+    }
+  },
   "backend_url": "https://drive-config.onrender.com"
 }
