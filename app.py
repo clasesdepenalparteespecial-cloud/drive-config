@@ -1,8 +1,9 @@
+
 import os
 import json
 import threading
 import time
-from typing import Callable, Iterable, Tuple, Dict, Any
+from typing import Callable, Iterable, Dict, Any
 
 from flask import Flask, request, jsonify, render_template, send_from_directory, abort
 from werkzeug.utils import secure_filename
@@ -15,27 +16,24 @@ from google.auth.transport.requests import Request
 from googleapiclient.errors import HttpError
 
 # =========================
-# Config general
+# Configuración general
 # =========================
 
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 CHUNK_SIZE = 256 * 1024  # 256 KiB
+
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "temp_uploads")
 TEMPLATES_AUTO_RELOAD = True
-
 CONFIG_FILE = os.environ.get("CONFIG_FILE", "config.json")
-
-# Si estás en Render, estos archivos deben existir en el contenedor.
-# Puedes montar secretos o subirlos como "Secret Files" en Render.
 DEFAULT_CREDENTIALS_FILE = os.environ.get("OAUTH_CLIENT_FILE", "credentials.json")
+MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 1024 * 1024 * 1024))  # 1GB por defecto
 
-# Límites de tamaño (ej: 1 GB por request)
-MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 1024 * 1024 * 1024))
+# Crear carpeta de uploads si no existe
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # =========================
-# Carga de configuración
+# Cargar configuración
 # =========================
-
 def load_config() -> Dict[str, Any]:
     if not os.path.exists(CONFIG_FILE):
         raise FileNotFoundError(f"No se encontró {CONFIG_FILE}")
@@ -52,7 +50,6 @@ CREDENTIALS_FILE = CONFIG.get("oauth_client", DEFAULT_CREDENTIALS_FILE)
 # =========================
 # Helpers Google Drive
 # =========================
-
 def is_transient(err: Exception) -> bool:
     s = str(err).lower()
     return any(sig in s for sig in (
@@ -82,19 +79,16 @@ def get_service(cuenta: str):
     token_file = CUENTAS[cuenta]["credenciales"]
     creds = None
 
-    # Carga de token si existe
     if os.path.exists(token_file):
         creds = Credentials.from_authorized_user_file(token_file, SCOPES)
 
-    # Refresco/obtención de credenciales
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             print("[auth] Refrescando token…")
             creds.refresh(Request())
         else:
-            # OJO: run_local_server NO funciona en servidores como Render.
-            # Para Render, genera token localmente y súbelo como archivo secreto.
-            print("[auth] Ejecutando flujo local (solo desarrollo local).")
+            # ⚠️ Solo desarrollo local
+            print("[auth] Ejecutando flujo local para obtener token")
             flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
             creds = flow.run_local_server(port=0)
 
@@ -112,8 +106,8 @@ def upload_files(
     try:
         service = get_service(cuenta)
         carpeta_id = CUENTAS[cuenta]["carpeta"]
-        total = len(list(rutas))  # materializamos para contar
         rutas = list(rutas)
+        total = len(rutas)
 
         for i, ruta in enumerate(rutas, start=1):
             nombre = os.path.basename(ruta)
@@ -136,7 +130,7 @@ def upload_files(
     except Exception as e:
         status_cb(f"❌ Error: {type(e).__name__}: {e}")
     finally:
-        # Limpieza opcional de archivos temporales
+        # Limpiar archivos temporales
         for ruta in rutas:
             try:
                 os.remove(ruta)
@@ -146,16 +140,12 @@ def upload_files(
 # =========================
 # Flask app
 # =========================
-
 app = Flask(__name__, template_folder="templates")
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.config["TEMPLATES_AUTO_RELOAD"] = TEMPLATES_AUTO_RELOAD
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
 @app.route("/")
 def home():
-    # Página simple con formulario; puedes personalizar templates/index.html
     return render_template("index.html", cuentas=list(CUENTAS.keys()))
 
 @app.get("/healthz")
@@ -184,18 +174,15 @@ def upload():
     if not rutas:
         return jsonify({"error": "No se recibieron archivos válidos"}), 400
 
-    def worker():
-        upload_files(
-            cuenta=cuenta,
-            rutas=rutas,
-            progress_cb=lambda v: print(f"[progress] {v}%"),
-            status_cb=lambda s: print(f"[status] {s}")
-        )
+    # Subida en segundo plano
+    threading.Thread(
+        target=upload_files,
+        args=(cuenta, rutas, lambda v: print(f"[progress] {v}%"), lambda s: print(f"[status] {s}")),
+        daemon=True
+    ).start()
 
-    threading.Thread(target=worker, daemon=True).start()
     return jsonify({"status": "Subida iniciada"}), 202
 
-# (Opcional) servir .well-known/assetlinks.json si luego usas TWA con dominio fijo
 @app.get("/.well-known/assetlinks.json")
 def assetlinks():
     path = os.path.join(app.root_path, ".well-known")
@@ -204,6 +191,8 @@ def assetlinks():
         return send_from_directory(path, "assetlinks.json", mimetype="application/json")
     return abort(404)
 
+# =========================
+# Arranque local (desarrollo)
+# =========================
 if __name__ == "__main__":
-    # Solo para desarrollo local
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
