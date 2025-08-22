@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Uploader a Drive</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, Arial, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    .box { border: 1px solid #ddd; padding: 1rem; border-radius: 10px; }
+    .row { margin: .75rem 0; display: grid; gap: .5rem; }
+    label { font-weight: 600; }
+    button { padding: .6rem 1rem; border: 0; border-radius: 8px; cursor: pointer; }
+    button[type="submit"] { background: #2b7cff; color: white; }
+    button[disabled] { opacity: .6; cursor: not-allowed; }
+    progress { width: 100%; height: 16px; }
+    .ok { color: #0a7f2e; }
+    .warn { color: #b36b00; }
+    .err { color: #b00020; }
+    .muted { opacity: .75; }
+    code { background: rgba(0,0,0,.06); padding: .12rem .35rem; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>Subir a Google Drive</h1>
+  <p class="muted">
+    Este cliente obtiene la URL del backend desde un <code>config.json</code> remoto. 
+    Podés cambiarlo en tu repositorio en cualquier momento.
+  </p>
+
+  <div class="box">
+    <form id="f" enctype="multipart/form-data">
+      <div class="row">
+        <label for="cuenta">Cuenta:</label>
+        <select name="cuenta" id="cuenta" required>
+          <option value="default">default</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label for="archivos">Archivos:</label>
+        <input type="file" name="archivos" id="archivos" multiple required />
+      </div>
+
+      <div class="row">
+        <button id="btn" type="submit">Subir</button>
+      </div>
+    </form>
+
+    <div class="row">
+      <progress id="p" value="0" max="100"></progress>
+    </div>
+
+    <div class="row">
+      <div id="status" class="muted">Cargando configuración…</div>
+      <div id="active-backend" class="muted"></div>
+    </div>
+  </div>
+
+  <script>
+    // URL de tu config.json hosteado en GitHub Pages
+    const REMOTE_CONFIG_URL = "https://clasesdepenalparteespecial-cloud.github.io/drive-config/config.json";
+
+    const form = document.getElementById('f');
+    const p = document.getElementById('p');
+    const statusEl = document.getElementById('status');
+    const activeBackendEl = document.getElementById('active-backend');
+    const submitBtn = document.getElementById('btn');
+
+    let BACKEND_URL = null;
+
+    async function loadBackendUrl() {
+      statusEl.textContent = 'Cargando configuración…';
+      try {
+        const res = await fetch(REMOTE_CONFIG_URL, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const cfg = await res.json();
+        if (!cfg.backend_url) throw new Error('Falta "backend_url" en config.json');
+        BACKEND_URL = cfg.backend_url.replace(/\/+$/, ''); // sin / final
+        statusEl.innerHTML = '✔ Configuración cargada.'; statusEl.className = 'ok';
+        activeBackendEl.textContent = `Backend activo: ${BACKEND_URL}`;
+        activeBackendEl.className = 'muted';
+        try {
+          const h = await fetch(`${BACKEND_URL}/healthz`, { cache: 'no-store' });
+          if (h.ok) activeBackendEl.textContent += '  (health OK)';
+        } catch (_) {}
+      } catch (err) {
+        BACKEND_URL = null;
+        statusEl.innerHTML = '✖ No se pudo cargar el config remoto: ' + err.message;
+        statusEl.className = 'err';
+        activeBackendEl.textContent = '';
+      }
+    }
+
+    async function submitForm(e) {
+      e.preventDefault();
+      if (!BACKEND_URL) {
+        statusEl.textContent = 'No hay backend configurado. Revisá el config remoto.';
+        statusEl.className = 'err';
+        return;
+      }
+
+      const data = new FormData(form);
+      p.value = 0;
+      statusEl.textContent = 'Subiendo…';
+      statusEl.className = 'muted';
+      submitBtn.disabled = true;
+
+      try {
+        const res = await fetch(`${BACKEND_URL}/upload`, { method: 'POST', body: data });
+        const js = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(js.error || `Error HTTP ${res.status}`);
+        }
+        statusEl.textContent = '✅ ' + (js.status || 'Subida iniciada');
+        statusEl.className = 'ok';
+      } catch (err) {
+        statusEl.textContent = '❌ Error subiendo: ' + err.message;
+        statusEl.className = 'err';
+      } finally {
+        p.value = 100;
+        submitBtn.disabled = false;
+      }
+    }
+
+    loadBackendUrl();
+    form.addEventListener('submit', submitForm);
+  </script>
+</body>
+</html>
